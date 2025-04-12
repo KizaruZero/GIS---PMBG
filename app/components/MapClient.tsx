@@ -21,6 +21,10 @@ interface GeoJsonProperties {
   source: string;
   date: string;
   valid_on: string;
+  prevalensi_stunting: number | null;
+  prevalensi_wasting: number | null;
+  prevalensi_underweight: number | null;
+  status: string;
 }
 
 interface GeoJsonGeometry {
@@ -44,6 +48,21 @@ interface GeoJsonData {
     };
   };
   features: GeoJsonFeature[];
+}
+
+// interface StuntingData {
+//   KABUPATEN: string;
+//   PREVALENSI: string; // atau bisa diubah ke number
+//   target: string; // bisa juga number kalau kamu perlukan
+// }
+
+interface DataGizi {
+  Kabupaten_Kota: string;
+  STATUS_GIZI: {
+    Prev_Stunting: number;
+    Prev_Wasting: number;
+    Prev_Underweight: number;
+  };
 }
 
 // Component to automatically fit the map to the GeoJSON bounds
@@ -102,6 +121,8 @@ const MapClient: React.FC = () => {
   const geoJsonLayerRef = useRef<any>(null);
   const [selectedRegency, setSelectedRegency] = useState<string | null>(null);
   const [regenciesList, setRegenciesList] = useState<string[]>([]);
+  // const [stuntingData, setStuntingData] = useState<StuntingData[]>([]);
+  const [dataGizi, setDataGizi] = useState<DataGizi[]>([]);
 
   // Fetch GeoJSON data
   useEffect(() => {
@@ -126,6 +147,48 @@ const MapClient: React.FC = () => {
     };
 
     fetchGeoJson();
+  }, []);
+
+  // Fetch stunting data
+  // useEffect(() => {
+  //   const fetchStuntingData = async () => {
+  //     try {
+  //       const response = await fetch("/app/data/data_stunting_2024.json");
+
+  //       if (!response.ok) {
+  //         throw new Error(`Failed to fetch stunting data: ${response.status}`);
+  //       }
+
+  //       const data: StuntingData[] = await response.json();
+  //       setStuntingData(data);
+  //     } catch (err) {
+  //       const error = err as Error;
+  //       console.error("Error loading stunting data:", error);
+  //     }
+  //   };
+
+  //   fetchStuntingData();
+  // }, []);
+
+  // fetch data gizi
+  useEffect(() => {
+    const fetchDataGizi = async () => {
+      try {
+        const response = await fetch("/app/data/gizi_indonesia_2024.json");
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch data gizi: ${response.status}`);
+        }
+
+        const data: DataGizi[] = await response.json();
+        setDataGizi(data);
+      } catch (err) {
+        const error = err as Error;
+        console.error("Error loading data gizi:", error);
+      }
+    };
+
+    fetchDataGizi();
   }, []);
 
   useEffect(() => {
@@ -175,7 +238,6 @@ const MapClient: React.FC = () => {
         const target = e.target as L.Polygon;
         const center = target.getBounds().getCenter();
         setPopupPosition([center.lat, center.lng]);
-        setSelectedFeature(feature.properties);
 
         if (geoJsonLayerRef.current) {
           geoJsonLayerRef.current.resetStyle();
@@ -186,6 +248,45 @@ const MapClient: React.FC = () => {
             fillOpacity: 0.7,
           });
         }
+        const regencyName = feature.properties.regency.toUpperCase(); // pastikan uppercase match
+        // const data = stuntingData.find(
+        //   (item) => item.KABUPATEN === regencyName
+        // );
+
+        const data = dataGizi.find(
+          (item) =>
+            item.Kabupaten_Kota &&
+            item.Kabupaten_Kota.replace(/^(KAB)\s+/i, "").toUpperCase() ===
+              regencyName.toUpperCase()
+        );
+
+        if (data) {
+          const prevalensi_stunting = data.STATUS_GIZI.Prev_Stunting;
+          const prevalensi_wasting = data.STATUS_GIZI.Prev_Wasting;
+          const prevalensi_underweight = data.STATUS_GIZI.Prev_Underweight;
+          const status =
+            prevalensi_stunting * 0.5 +
+            prevalensi_wasting * 0.3 +
+            prevalensi_underweight * 0.2;
+
+          feature.properties.prevalensi_stunting = prevalensi_stunting;
+          feature.properties.prevalensi_wasting = prevalensi_wasting;
+          feature.properties.prevalensi_underweight = prevalensi_underweight;
+
+          console.log(status);
+
+          if (status >= 15) {
+            feature.properties.status =
+              status.toFixed(3) + " \nTINGGI (DARURAT)";
+          } else if (status >= 10) {
+            feature.properties.status =
+              status.toFixed(3) + " \nSEDANG (WASPADA)";
+          } else {
+            feature.properties.status = status.toFixed(3) + " \nRENDAH (AMAN)";
+          }
+          setSelectedFeature(feature.properties);
+        } else
+          console.log(`No stunting data found for regency: ${regencyName}`);
       },
     });
   };
@@ -263,7 +364,7 @@ const MapClient: React.FC = () => {
           >
             <div className="p-2">
               <h3 className="text-lg font-bold mb-2">
-                {selectedFeature.village}
+                {selectedFeature.regency} - {selectedFeature.village}
               </h3>
               <table className="w-full text-sm">
                 <tbody>
@@ -282,6 +383,36 @@ const MapClient: React.FC = () => {
                   <tr>
                     <td className="font-semibold pr-2">Provinsi:</td>
                     <td>{selectedFeature.province}</td>
+                  </tr>
+                  <tr>
+                    <td className="font-semibold pr-2">Prevalensi Stunting:</td>
+                    <td>{selectedFeature.prevalensi_stunting}%</td>
+                  </tr>
+                  <tr>
+                    <td className="font-semibold pr-2">Prevalensi Wasting:</td>
+                    <td>{selectedFeature.prevalensi_wasting}%</td>
+                  </tr>
+                  <tr>
+                    <td className="font-semibold pr-2">
+                      Prevalensi Underweight:
+                    </td>
+                    <td>{selectedFeature.prevalensi_underweight}%</td>
+                  </tr>
+                  <tr>
+                    <td className="font-semibold pr-2">STATUS PRIORITAS:</td>
+                    {selectedFeature.status.includes("DARURAT") ? (
+                      <td className="text-red-500 font-bold">
+                        {selectedFeature.status}
+                      </td>
+                    ) : selectedFeature.status.includes("WASPADA") ? (
+                      <td className="text-yellow-500 font-bold">
+                        {selectedFeature.status}
+                      </td>
+                    ) : (
+                      <td className="text-green-500 font-bold">
+                        {selectedFeature.status}
+                      </td>
+                    )}
                   </tr>
                 </tbody>
               </table>
